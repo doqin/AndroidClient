@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,8 +18,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import com.example.androidclient.ui.theme.AndroidClientTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,8 +63,7 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding),
                         contentAlignment = Alignment.Center
-                    )
-                    {
+                    ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
@@ -68,6 +75,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    TouchEvents()
                 }
             }
         }
@@ -151,6 +159,62 @@ class MainActivity : ComponentActivity() {
             withContext(Dispatchers.Main) {
                 startListeningForBroadcast()
             }
+        }
+    }
+    @Composable
+    private fun TouchEvents() {
+        var touchPosition by remember {
+            mutableStateOf(Offset.Zero) }
+        var isTouching by remember {
+            mutableStateOf(false) }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectDragGestures( { offset ->
+                        isTouching = true
+                        touchPosition = offset
+                        sendMouseEvent(serverIp ?: "",
+                            "LEFT_DOWN",
+                            offset.x.toInt(),
+                            offset.y.toInt())
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        touchPosition += dragAmount
+                        sendMouseEvent(serverIp ?: "",
+                            "MOVE",
+                            touchPosition.x.toInt(),
+                            touchPosition.y.toInt())
+                    },
+                    onDragEnd = {
+                        isTouching = false
+                        sendMouseEvent(serverIp ?: "",
+                        "LEFT_UP",
+                        touchPosition.x.toInt(),
+                        touchPosition.y.toInt())
+                    }
+                    )
+                }
+        )
+    }
+
+    private fun sendMouseEvent(serverIp: String, eventType: String, x: Int = 0, y: Int = 0) {
+        if (serverIp.isEmpty()) return
+        try {
+            val socket = Socket()
+            socket.connect(InetSocketAddress(serverIp, tcpPort), timeout)
+            val output = PrintWriter(OutputStreamWriter(socket.getOutputStream()), true)
+            val message = when (eventType) {
+                "MOVE" -> "MOVE $x $y"
+                "LEFT_DOWN" -> "LEFT_DOWN"
+                "LEFT_UP" -> "LEFT_UP"
+                else -> ""
+            }
+            output.println(message)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
