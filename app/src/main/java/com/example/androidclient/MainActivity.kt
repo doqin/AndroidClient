@@ -12,10 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,12 +63,7 @@ class MainActivity : ComponentActivity() {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("Say hello to the server!")
-                            IconButton(onClick = {
-                                serverIp?.let { sendMessage(it) }
-                            }) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                            }
+                            Text("Trackpad")
                         }
                     }
                     TouchEvents()
@@ -165,6 +156,9 @@ class MainActivity : ComponentActivity() {
     private fun TouchEvents() {
         var touchPosition by remember {
             mutableStateOf(Offset.Zero) }
+        var previousTouchPosition by remember {
+            mutableStateOf(Offset.Zero)
+        }
         var isTouching by remember {
             mutableStateOf(false) }
 
@@ -172,29 +166,27 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectDragGestures( { offset ->
-                        isTouching = true
-                        touchPosition = offset
-                        sendMouseEvent(serverIp ?: "",
-                            "LEFT_DOWN",
-                            offset.x.toInt(),
-                            offset.y.toInt())
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        touchPosition += dragAmount
-                        sendMouseEvent(serverIp ?: "",
-                            "MOVE",
-                            touchPosition.x.toInt(),
-                            touchPosition.y.toInt())
-                    },
-                    onDragEnd = {
-                        isTouching = false
-                        sendMouseEvent(serverIp ?: "",
-                        "LEFT_UP",
-                        touchPosition.x.toInt(),
-                        touchPosition.y.toInt())
-                    }
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            isTouching = true
+                            touchPosition = offset
+                            previousTouchPosition = offset
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val currentTouchPosition = change.position
+                            val dx = (currentTouchPosition.x - previousTouchPosition.x).toInt()
+                            val dy = (currentTouchPosition.y - previousTouchPosition.y).toInt()
+                            sendMouseEvent(
+                                serverIp ?: "",
+                                "MOVE",
+                                dx,
+                                dy)
+                            previousTouchPosition = currentTouchPosition
+                        },
+                        onDragEnd = {
+                            isTouching = false
+                        }
                     )
                 }
         )
