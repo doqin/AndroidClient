@@ -44,10 +44,11 @@ class MainActivity : ComponentActivity() {
     private var udpJob: Job? = null
     private var tcpJob: Job? = null
     private var serverIp: String? = null
+    private lateinit var socket: Socket
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        startListeningForBroadcast()
+        discoverBroadcast()
         enableEdgeToEdge()
         val policy = StrictMode.ThreadPolicy.Builder().permitAll().build()
         StrictMode.setThreadPolicy(policy)
@@ -74,7 +75,7 @@ class MainActivity : ComponentActivity() {
 
     private fun sendMessage(serverIp: String) {
         try {
-            val socket = Socket()
+            socket = Socket()
             socket.connect(InetSocketAddress(serverIp, tcpPort), timeout)
             val output = PrintWriter(OutputStreamWriter(socket.getOutputStream()), true)
             output.println("Hello from Android client!")
@@ -84,29 +85,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startListeningForBroadcast() {
+    private fun discoverBroadcast() {
+        Toast.makeText(this@MainActivity, "Listening for broadcast", Toast.LENGTH_SHORT).show()
+        Log.d("UDP", "Listening for broadcast...")
         udpJob = CoroutineScope(Dispatchers.IO).launch {
             try {
-                val socket = DatagramSocket(broadcastPort)
-                socket.broadcast = true
+                val udpSocket = DatagramSocket(broadcastPort)
+                udpSocket.broadcast = true
                 val buffer = ByteArray(1024)
 
                 while (isActive) {
                     val packet = DatagramPacket(buffer, buffer.size)
-                    socket.receive(packet)
-
+                    udpSocket.receive(packet)
                     val receivedMessage = String(packet.data, 0, packet.length)
                     serverIp = packet.address.hostAddress
                     Log.d("UDP", "Server found at: $serverIp")
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Server found!",
-                        Toast.LENGTH_SHORT)
-                        .show()
                     if (receivedMessage.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "Server found at: $serverIp", Toast.LENGTH_SHORT).show()
                             serverIp?.let { connectToServer(it) }
                         }
+                    } else {
+                        Log.w("UDP", "Received empty broadcast message.")
                     }
                 }
             } catch (e: Exception) {
@@ -119,48 +119,43 @@ class MainActivity : ComponentActivity() {
         val context = this
         tcpJob = CoroutineScope(Dispatchers.IO).launch {
             try {
-                val socket = Socket()
+                socket = Socket()
                 socket.connect(InetSocketAddress(serverIp, tcpPort), timeout)
                 val output = PrintWriter(OutputStreamWriter(socket.getOutputStream()), true)
-                // val input = BufferedReader(InputStreamReader(socket.getInputStream()))
 
                 Log.d("TCP", "Connected to server at $serverIp")
-                output.println("Hello from Android client!")
-                Toast.makeText(context, "Message sent to server", Toast.LENGTH_SHORT)
-                    .show()
-
-                // val response = input.readLine()
-                // Log.d("TCP", "Server response: $response")
-                // Toast.makeText(context, "Message from server: $response", Toast.LENGTH_LONG).show()
-
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Connected to server $serverIp", Toast.LENGTH_SHORT)
+                        .show()
+                }
                 while(socket.isConnected) {
                     // TODO: Handle incoming messages
                 }
 
-                Toast.makeText(context, "Connection lost", Toast.LENGTH_LONG).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Connection lost", Toast.LENGTH_LONG).show()
+                }
                 Log.e("TCP", "Connection lost, restarting UDP discovery...")
 
             } catch (e: Exception) {
                 e.printStackTrace()
-                // Popup error message to user
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
                 Log.d("TCP", "Connection error: ${e.message}, restarting UDP discovery...")
             }
 
             withContext(Dispatchers.Main) {
-                startListeningForBroadcast()
+                discoverBroadcast()
             }
         }
     }
     @Composable
     private fun TouchEvents() {
-        var touchPosition by remember {
-            mutableStateOf(Offset.Zero) }
         var previousTouchPosition by remember {
             mutableStateOf(Offset.Zero)
         }
-        var isTouching by remember {
-            mutableStateOf(false) }
 
         Box(
             modifier = Modifier
@@ -168,12 +163,10 @@ class MainActivity : ComponentActivity() {
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            isTouching = true
-                            touchPosition = offset
                             previousTouchPosition = offset
+                            Toast.makeText(this@MainActivity, "Drag detected", Toast.LENGTH_SHORT).show()
                         },
                         onDrag = { change, _ ->
-                            change.consume()
                             val currentTouchPosition = change.position
                             val dx = (currentTouchPosition.x - previousTouchPosition.x).toInt()
                             val dy = (currentTouchPosition.y - previousTouchPosition.y).toInt()
@@ -185,7 +178,6 @@ class MainActivity : ComponentActivity() {
                             previousTouchPosition = currentTouchPosition
                         },
                         onDragEnd = {
-                            isTouching = false
                         }
                     )
                 }
@@ -193,25 +185,31 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun sendMouseEvent(serverIp: String, eventType: String, x: Int = 0, y: Int = 0) {
-        if (serverIp.isEmpty()) return
+        if (serverIp.isEmpty()) {
+            Toast.makeText(this, "Server IP is empty", Toast.LENGTH_SHORT).show()
+            println("Server IP is empty")
+            return
+        }
         try {
-            val socket = Socket()
-            socket.connect(InetSocketAddress(serverIp, tcpPort), timeout)
             val output = PrintWriter(OutputStreamWriter(socket.getOutputStream()), true)
             val message = when (eventType) {
                 "MOVE" -> "MOVE $x $y"
                 "LEFT_DOWN" -> "LEFT_DOWN"
                 "LEFT_UP" -> "LEFT_UP"
+                "RIGHT_DOWN" -> "RIGHT_DOWN"
+                "RIGHT_UP" -> "RIGHT_UP"
                 else -> ""
             }
             output.println(message)
         } catch (e: Exception) {
+            Log.e("TCP", "Error sending mouse event: ${e.message}")
             e.printStackTrace()
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        socket.close()
         udpJob?.cancel()
         tcpJob?.cancel()
     }
